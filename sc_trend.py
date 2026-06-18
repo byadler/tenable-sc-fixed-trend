@@ -1,10 +1,10 @@
 """
 Tenable.SC – Fixed Vulnerabilities Trend Report
 ================================================
-מריץ שאילתות אמיתיות ל-SC ויוצר דוח HTML עם גרפים.
+Queries real SC data and generates an HTML report with charts.
 
-הרצה:
-  py sc_trend.py
+Run:
+  py sc_trend_en.py
 """
 import urllib.request, http.cookiejar, json, ssl, webbrowser, os
 from datetime import datetime, timedelta
@@ -14,7 +14,7 @@ CTX = ssl.create_default_context()
 CTX.check_hostname = False
 CTX.verify_mode    = ssl.CERT_NONE
 
-# ── קבל פרטי חיבור מהמשתמש ─────────────────────────────
+# ── Connection details ──────────────────────────────────────
 print("=" * 50)
 print("  Tenable.SC – Fixed Trend Report")
 print("=" * 50)
@@ -56,19 +56,19 @@ def sc_call(path, method="GET", data=None, token=None, retries=3):
             else:
                 raise
 
-print("מתחבר ל-SC...", end=" ", flush=True)
+print("Connecting to SC...", end=" ", flush=True)
 login_resp = sc_call("token", "POST", {"username": USERNAME, "password": PASSWORD})
 TOKEN      = str(login_resp["response"]["token"])
 print("✓\n")
 
-# ── שלוף Repos ────────────────────────────────────────────
+# ── Fetch Repositories ─────────────────────────────────────
 repos_resp = sc_call("repository?fields=id,name", token=TOKEN)
 repos = repos_resp.get("response", [])
 print("Repositories:")
-print("  0. כל ה-Repos")
+print("  0. All Repositories")
 for i, r in enumerate(repos, 1):
     print(f"  {i}. {r['name']} (id={r['id']})")
-repo_choice = input("בחר מספר ריפו [0=כל]: ").strip() or "0"
+repo_choice = input("Select repository number [0=All]: ").strip() or "0"
 REPO_IDS = []
 if repo_choice != "0":
     try:
@@ -76,16 +76,16 @@ if repo_choice != "0":
     except: pass
 print()
 
-# ── שלוף Asset Tags ───────────────────────────────────────
+# ── Fetch Asset Tags ───────────────────────────────────────
 assets_resp = sc_call("asset?fields=id,name,type", token=TOKEN)
 ar = assets_resp.get("response", [])
 if isinstance(ar, dict):
     ar = ar.get("usable", ar.get("manageable", []))
 print("Asset Tags:")
-print("  0. ללא סינון")
+print("  0. No filter (all assets)")
 for i, a in enumerate(ar, 1):
     print(f"  {i}. {a['name']}")
-asset_choice = input("בחר מספר Asset [0=ללא]: ").strip() or "0"
+asset_choice = input("Select asset number [0=None]: ").strip() or "0"
 ASSET_ID = None
 if asset_choice != "0":
     try:
@@ -93,18 +93,18 @@ if asset_choice != "0":
     except: pass
 print()
 
-# ── בחר טווח זמן ─────────────────────────────────────────
-print("טווח זמן:")
-print("  1. שבוע אחרון בלבד")
-print("  2. 4 שבועות")
-print("  3. 3 חודשים (13 שבועות)")
-print("  4. שנה (52 שבועות)")
-time_choice = input("בחר [1-4, ברירת מחדל=4]: ").strip() or "4"
+# ── Select Time Range ──────────────────────────────────────
+print("Time range:")
+print("  1. Last week only")
+print("  2. Last 4 weeks (1 month)")
+print("  3. Last 3 months (13 weeks)")
+print("  4. Last year (52 weeks)")
+time_choice = input("Select [1-4, default=4]: ").strip() or "4"
 WEEKS_MAP = {"1": 1, "2": 4, "3": 13, "4": 52}
 NUM_WEEKS = WEEKS_MAP.get(time_choice, 52)
 print()
 
-# ── פונקציית שליפה ────────────────────────────────────────
+# ── Fetch function ─────────────────────────────────────────
 SEV_MAP = {"4": "Critical", "3": "High", "2": "Medium", "1": "Low", "0": "Info"}
 
 def fetch_week(day_end, day_start):
@@ -131,17 +131,17 @@ def fetch_week(day_end, day_start):
         counts[SEV_MAP.get(sev_id, "Info")] += int(item.get("count", 0))
     return counts
 
-# ── שלוף נתונים ───────────────────────────────────────────
+# ── Fetch data ─────────────────────────────────────────────
 now   = datetime.now()
 weeks = []
 
-print(f"שולף נתונים ({NUM_WEEKS} שבועות)...")
+print(f"Fetching data ({NUM_WEEKS} weeks)...")
 for i in range(NUM_WEEKS):
     day_end   = (NUM_WEEKS - 1 - i) * 7
     day_start = day_end + 7
     end_dt    = now - timedelta(days=day_end)
     start_dt  = now - timedelta(days=day_start)
-    label     = f"{start_dt.strftime('%d/%m')}-{end_dt.strftime('%d/%m/%y')}"
+    label     = f"{start_dt.strftime('%m/%d')}-{end_dt.strftime('%m/%d/%y')}"
     print(f"  [{i+1:2d}/{NUM_WEEKS}] {label}", end=" ", flush=True)
     counts    = fetch_week(day_end, day_start)
     total     = counts["Critical"] + counts["High"] + counts["Medium"] + counts["Low"]
@@ -152,7 +152,7 @@ for i in range(NUM_WEEKS):
 try: sc_call("token", "DELETE", token=TOKEN)
 except: pass
 
-# ── סיכום תקופות ───────────────────────────────────────────
+# ── Period summaries ───────────────────────────────────────
 def sum_weeks(n):
     r = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
     for w in weeks[-n:]:
@@ -161,18 +161,18 @@ def sum_weeks(n):
     return r
 
 _p = []
-if NUM_WEEKS >= 1:  _p.append({**sum_weeks(min(1,  NUM_WEEKS)), "Period": "שבוע אחרון"})
-if NUM_WEEKS >= 4:  _p.append({**sum_weeks(min(4,  NUM_WEEKS)), "Period": "4 שבועות"})
-if NUM_WEEKS >= 13: _p.append({**sum_weeks(min(13, NUM_WEEKS)), "Period": "3 חודשים"})
-if NUM_WEEKS >= 52: _p.append({**sum_weeks(52),                "Period": "שנה"})
-periods  = _p if _p else [{**sum_weeks(NUM_WEEKS), "Period": f"{NUM_WEEKS} שבועות"}]
+if NUM_WEEKS >= 1:  _p.append({**sum_weeks(min(1,  NUM_WEEKS)), "Period": "Last Week"})
+if NUM_WEEKS >= 4:  _p.append({**sum_weeks(min(4,  NUM_WEEKS)), "Period": "Last 4 Weeks"})
+if NUM_WEEKS >= 13: _p.append({**sum_weeks(min(13, NUM_WEEKS)), "Period": "Last 3 Months"})
+if NUM_WEEKS >= 52: _p.append({**sum_weeks(52),                "Period": "Last Year"})
+periods  = _p if _p else [{**sum_weeks(NUM_WEEKS), "Period": f"Last {NUM_WEEKS} Weeks"}]
 total_db = sum_weeks(NUM_WEEKS)["Total"]
 
-# ── Moving Average ──────────────────────────────────────────
+# ── Moving Average ─────────────────────────────────────────
 totals = [w["Total"] for w in weeks]
 mavg   = [round(sum(totals[max(0,i-3):i+1]) / len(totals[max(0,i-3):i+1])) for i in range(len(totals))]
 
-# ── JSON לגרפים ────────────────────────────────────────────
+# ── JSON for charts ────────────────────────────────────────
 wl  = json.dumps([w["Period"]   for w in weeks])
 wc  = json.dumps([w["Critical"] for w in weeks])
 wh  = json.dumps([w["High"]     for w in weeks])
@@ -205,7 +205,7 @@ table_rows = "".join(
 )
 
 html = f"""<!DOCTYPE html>
-<html lang="he" dir="rtl">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>Fixed Vulnerabilities Trend - Tenable.SC</title>
@@ -221,7 +221,7 @@ h2{{color:#2E75B6;border-bottom:2px solid #2E75B6;padding-bottom:6px;margin-top:
 .box h3{{margin:0 0 6px;font-size:12px;color:#555;font-weight:normal}}
 .num{{font-size:32px;font-weight:bold;color:#1F4E79}}
 .sev{{font-size:11px;color:#888;margin-top:5px}}
-.legend{{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;justify-content:flex-end}}
+.legend{{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px}}
 .leg{{display:flex;align-items:center;gap:5px;font-size:12px;color:#555}}
 .dot{{width:10px;height:10px;border-radius:2px;display:inline-block}}
 .dash{{display:inline-block;width:20px;height:0;border-top:2.5px dashed #1F4E79}}
@@ -233,39 +233,39 @@ tr:nth-child(even) td{{background:#f8fafc}}
 </head>
 <body>
 <h1>Fixed Vulnerabilities Trend – Tenable.SC</h1>
-<p class="sub">Generated: {datetime.now().strftime('%d/%m/%Y %H:%M')} &nbsp;|&nbsp; Total Fixed (52w): {total_db:,}</p>
+<p class="sub">Generated: {datetime.now().strftime('%m/%d/%Y %H:%M')} &nbsp;|&nbsp; Total Fixed: {total_db:,}</p>
 
 <div class="card">
-  <h2>סיכום תקופות</h2>
+  <h2>Period Summary</h2>
   <div class="grid">{period_rows}</div>
 </div>
 
 <div class="card">
-  <h2>מגמה שנתית – עמודות + קו מגמה (52 שבועות)</h2>
+  <h2>Weekly Trend – Stacked Bar + Trend Line</h2>
   <div class="legend">
     <span class="leg"><span class="dot" style="background:#C00000"></span>Critical</span>
     <span class="leg"><span class="dot" style="background:#FF4444"></span>High</span>
     <span class="leg"><span class="dot" style="background:#FFC000"></span>Medium</span>
     <span class="leg"><span class="dot" style="background:#00B0F0"></span>Low</span>
-    <span class="leg"><span class="dash"></span>קו מגמה (ממוצע 4 שב')</span>
+    <span class="leg"><span class="dash"></span>Trend Line (4-week avg)</span>
   </div>
   <canvas id="weeklyChart" style="max-height:340px"></canvas>
 </div>
 
 <div class="card">
-  <h2>קו מגמה – סה"כ Fixed לפי שבוע</h2>
+  <h2>Total Fixed – Trend Line</h2>
   <canvas id="lineChart" style="max-height:240px"></canvas>
 </div>
 
 <div class="card">
-  <h2>השוואת תקופות</h2>
+  <h2>Period Comparison</h2>
   <canvas id="periodChart" style="max-height:240px"></canvas>
 </div>
 
 <div class="card">
-  <h2>טבלת נתונים שבועית</h2>
+  <h2>Weekly Data Table</h2>
   <table>
-    <tr><th>תקופה</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>סה"כ</th></tr>
+    <tr><th>Period</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Total</th></tr>
     {table_rows}
   </table>
 </div>
@@ -284,7 +284,7 @@ const ph  = {ph};
 const pm  = {pm};
 const plo = {plo};
 
-// ── גרף שבועי ──────────────────────────────────────────────
+// Weekly stacked bar + trend line
 new Chart(document.getElementById('weeklyChart'), {{
   type: 'bar',
   data: {{
@@ -294,7 +294,7 @@ new Chart(document.getElementById('weeklyChart'), {{
       {{label:'High',     data:wh,  backgroundColor:'#FF4444', stack:'s'}},
       {{label:'Medium',   data:wm,  backgroundColor:'#FFC000', stack:'s'}},
       {{label:'Low',      data:wlo, backgroundColor:'#00B0F0', stack:'s'}},
-      {{label:'קו מגמה', data:wma, type:'line', borderColor:'#1F4E79',
+      {{label:'Trend Line', data:wma, type:'line', borderColor:'#1F4E79',
         borderDash:[6,3], borderWidth:2, pointRadius:0, fill:false,
         yAxisID:'y', tension:0.3}}
     ]
@@ -305,15 +305,15 @@ new Chart(document.getElementById('weeklyChart'), {{
   }}
 }});
 
-// ── גרף קו ─────────────────────────────────────────────────
+// Total trend line + moving average
 new Chart(document.getElementById('lineChart'), {{
   type: 'line',
   data: {{
     labels: wl,
     datasets: [
-      {{label:'סה"כ Fixed', data:wt, borderColor:'#2E75B6', backgroundColor:'rgba(46,117,182,0.08)',
+      {{label:'Total Fixed', data:wt, borderColor:'#2E75B6', backgroundColor:'rgba(46,117,182,0.08)',
         fill:true, tension:0.3, pointRadius:2}},
-      {{label:'ממוצע נע (4w)', data:wma, borderColor:'#C00000', borderDash:[6,3],
+      {{label:'Moving Avg (4w)', data:wma, borderColor:'#C00000', borderDash:[6,3],
         borderWidth:2, pointRadius:0, fill:false}}
     ]
   }},
@@ -321,7 +321,7 @@ new Chart(document.getElementById('lineChart'), {{
     scales:{{x:{{ticks:{{maxTicksLimit:13}}}}, y:{{beginAtZero:true}}}}}}
 }});
 
-// ── גרף תקופות ─────────────────────────────────────────────
+// Period comparison
 new Chart(document.getElementById('periodChart'), {{
   type: 'bar',
   data: {{
@@ -340,10 +340,10 @@ new Chart(document.getElementById('periodChart'), {{
 </body>
 </html>"""
 
-# ── שמור ופתח ──────────────────────────────────────────────
+# ── Save and open ──────────────────────────────────────────
 out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Fixed_Trend_Report.html")
 with open(out, "w", encoding="utf-8") as f:
     f.write(html)
 
-print(f"\n✅ הדוח נשמר: {out}")
+print(f"\n✅ Report saved: {out}")
 webbrowser.open(f"file:///{out.replace(os.sep, '/')}")

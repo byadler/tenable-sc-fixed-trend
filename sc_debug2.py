@@ -1,6 +1,10 @@
 """
-SC Debug 2 – מוצא את הטווח שיש בו נתונים Fixed
-הרצה: py sc_debug2.py
+Tenable.SC – Date Range Diagnostic
+=====================================
+Validates the lastMitigated filter format and checks which
+date ranges contain Fixed vulnerability data.
+
+Run:  py sc_debug2.py
 """
 import urllib.request, http.cookiejar, json, ssl
 from datetime import datetime, timedelta
@@ -35,12 +39,12 @@ def sc_call(path, method="GET", data=None, token=None):
 
 resp  = sc_call("token", "POST", {"username": USERNAME, "password": PASSWORD})
 TOKEN = str(resp["response"]["token"])
-print("✓ Login OK\n")
+print("Login OK\n")
 
 now = datetime.now()
 
-# ── 1. שלוף כמה רשומות עם פרטי תאריך ──────────────────────
-print("1. שולף 3 רשומות Fixed עם שדות תאריך...")
+# 1. Fetch sample records with date fields
+print("1. Fetching 3 sample Fixed records with date fields...")
 r = sc_call("analysis", "POST", {
     "type": "vuln", "sourceType": "patched",
     "query": {
@@ -60,11 +64,11 @@ for rec in results:
                 dt = datetime.utcfromtimestamp(int(v)).strftime('%Y-%m-%d')
             except:
                 dt = str(v)
-            print(f"     {f}: {v} → {dt}")
+            print(f"     {f}: {v} -> {dt}")
 print()
 
-# ── 2. נסה lastMitigated עם טווח רחב (5 שנים) ─────────────
-print("2. lastMitigated – טווח 5 שנים:")
+# 2. Test lastMitigated with Unix timestamps (wrong format – expect 0 results)
+print("2. lastMitigated with Unix timestamps (expected: 0 results):")
 ts_old = int((now - timedelta(days=365*5)).timestamp())
 ts_now = int(now.timestamp())
 r = sc_call("analysis", "POST", {
@@ -78,8 +82,8 @@ rr = r.get("response", {})
 total = sum(int(x.get("count",0)) for x in rr.get("results",[]))
 print(f"   count={total}  totalRecords={rr.get('totalRecords','?')}\n")
 
-# ── 3. נסה lastMitigated עם "ימים" (פורמט 0:30) ──────────
-print("3. lastMitigated – פורמט ימים (0:30):")
+# 3. Test lastMitigated with DAYS format (correct format)
+print("3. lastMitigated with DAYS format '0:30' (expected: results):")
 r = sc_call("analysis", "POST", {
     "type": "vuln", "sourceType": "patched",
     "query": {"tool": "sumseverity", "type": "vuln",
@@ -91,15 +95,14 @@ rr = r.get("response", {})
 total = sum(int(x.get("count",0)) for x in rr.get("results",[]))
 print(f"   count={total}  totalRecords={rr.get('totalRecords','?')}\n")
 
-# ── 4. נסה טווח שנה ─────────────────────────────────────────
-print("4. lastMitigated – שנה אחרונה:")
-ts_1y = int((now - timedelta(days=365)).timestamp())
+# 4. Test last year using days
+print("4. lastMitigated last year ('0:365'):")
 r = sc_call("analysis", "POST", {
     "type": "vuln", "sourceType": "patched",
     "query": {"tool": "sumseverity", "type": "vuln",
               "startOffset": 0, "endOffset": 10,
               "filters": [{"filterName": "lastMitigated", "operator": "=",
-                           "value": f"{ts_1y}:{ts_now}"}]}
+                           "value": "0:365"}]}
 }, TOKEN)
 rr = r.get("response", {})
 total = sum(int(x.get("count",0)) for x in rr.get("results",[]))
@@ -107,4 +110,4 @@ print(f"   count={total}  totalRecords={rr.get('totalRecords','?')}\n")
 
 try: sc_call("token", "DELETE", token=TOKEN)
 except: pass
-print("סיום.")
+print("Done.")

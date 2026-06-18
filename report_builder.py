@@ -4,7 +4,7 @@ Tenable.SC – Report Builder
 ============================
 Single file · No external dependencies · Works Offline
 
-Run:  py report_builder.py
+Run:  py report_builder_en.py
 Open: http://localhost:8080
 
 For offline Chart.js:
@@ -29,10 +29,10 @@ PORT       = 8080
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _CHART_LOCAL = os.path.join(SCRIPT_DIR, "chart.min.js")
 
-# הורד chart.min.js אוטומטית אם לא קיים
+# Download chart.min.js automatically if not present
 if not os.path.exists(_CHART_LOCAL):
     try:
-        print("מוריד Chart.js...", end=" ", flush=True)
+        print("Downloading Chart.js...", end=" ", flush=True)
         _ctx = ssl.create_default_context()
         _ctx.check_hostname = False
         _ctx.verify_mode    = ssl.CERT_NONE
@@ -43,7 +43,7 @@ if not os.path.exists(_CHART_LOCAL):
             _f.write(_req.read())
         print("✓")
     except Exception as _e:
-        print(f"נכשל ({_e}) – ישתמש ב-CDN")
+        print(f"Failed ({_e}) – will use CDN")
 
 CHART_SRC = "chart.min.js" if os.path.exists(_CHART_LOCAL) \
             else "https://cdn.jsdelivr.net/npm/chart.js"
@@ -116,12 +116,12 @@ class SCClient:
     def query_fixed(self, start_ts, end_ts, repo_ids=None, asset_id=None):
         """
         POST /rest/analysis  sourceType="patched"
-        lastMitigated מקבל ימים (לא timestamps):
-          "0:7"  = תוקן בין 0 ל-7 ימים אחורה
-          "7:14" = תוקן בין 7 ל-14 ימים אחורה
+        lastMitigated uses DAYS (not timestamps):
+          "0:7"  = mitigated between 0 and 7 days ago
+          "7:14" = mitigated between 7 and 14 days ago
         """
-        now_ts   = datetime.now().timestamp()
-        day_end  = max(0, int((now_ts - end_ts)   / 86400))
+        now_ts    = datetime.now().timestamp()
+        day_end   = max(0, int((now_ts - end_ts)   / 86400))
         day_start = max(0, int((now_ts - start_ts) / 86400))
         filters = [{
             "filterName": "lastMitigated",
@@ -187,7 +187,7 @@ def build_periods(start_dt, end_dt, granularity):
     else:  # weekly (default)
         while cur < end_dt:
             nxt = min(cur + timedelta(weeks=1), end_dt)
-            periods.append((f"{cur.strftime('%d/%m')}–{nxt.strftime('%d/%m/%y')}", cur, nxt))
+            periods.append((f"{cur.strftime('%m/%d')}–{nxt.strftime('%m/%d/%y')}", cur, nxt))
             cur = nxt
     return periods
 
@@ -215,14 +215,6 @@ def render_report(cfg, rows):
     total   = [r["Total"]    for r in rows]
     mavg    = moving_avg(total)
 
-    # Period summary (last 7 / 30 / 90 days from rows)
-    now = datetime.now()
-    def sum_period(days):
-        cutoff = now - timedelta(days=days)
-        # approximate: sum last N rows proportionally
-        # (rows are already filtered; just use total of all rows as approximation)
-        return sum(total)
-
     colors  = cfg.get("colors", {})
     c_crit  = colors.get("Critical", "#C00000")
     c_high  = colors.get("High",     "#FF4444")
@@ -231,14 +223,14 @@ def render_report(cfg, rows):
     c_info  = colors.get("Info",     "#AAAAAA")
 
     title       = cfg.get("title",    "Fixed Vulnerabilities Trend")
-    logo_src    = cfg.get("logo")     # base64 data URL or None
+    logo_src    = cfg.get("logo")
     asset_name  = cfg.get("assetName", "—")
     repo_names  = ", ".join(cfg.get("repoNames", [])) or "—"
-    generated   = datetime.now().strftime("%d/%m/%Y %H:%M")
+    generated   = datetime.now().strftime("%m/%d/%Y %H:%M")
     total_fixed = sum(total)
 
     logo_html = (f'<img src="{logo_src}" style="max-height:45px;max-width:180px;'
-                 f'vertical-align:middle;margin-left:16px">'
+                 f'vertical-align:middle;margin-right:16px">'
                  if logo_src and logo_src not in ("null", "None", "") else "")
 
     # Inline Chart.js so the HTML is self-contained (needed for iframe srcdoc)
@@ -262,18 +254,18 @@ def render_report(cfg, rows):
         )
 
     html = f"""<!DOCTYPE html>
-<html dir="rtl" lang="he">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>{title}</title>
 {_chart_tag}
 <style>
-  body   {{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f8;margin:0;padding:20px;direction:rtl}}
+  body   {{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f8;margin:0;padding:20px}}
   h1     {{color:#1F4E79;margin:0;font-size:22px;vertical-align:middle}}
   h2     {{color:#2E75B6;border-bottom:2px solid #2E75B6;padding-bottom:6px;margin-bottom:16px;font-size:15px}}
   .hdr   {{background:#fff;border-radius:10px;padding:18px 24px;margin-bottom:20px;
            box-shadow:0 2px 8px rgba(0,0,0,.08);display:flex;align-items:center;justify-content:space-between}}
-  .meta  {{font-size:12px;color:#888;line-height:1.8}}
+  .meta  {{font-size:12px;color:#888;line-height:1.8;text-align:right}}
   .card  {{background:#fff;border-radius:10px;padding:22px 24px;margin-bottom:20px;
            box-shadow:0 2px 8px rgba(0,0,0,.08)}}
   .kpi-grid {{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:0}}
@@ -299,15 +291,15 @@ def render_report(cfg, rows):
   <div class="meta">
     <div>⚙ Asset: <strong>{asset_name}</strong></div>
     <div>🗄 Repos: <strong>{repo_names}</strong></div>
-    <div>📅 נוצר: {generated}</div>
+    <div>📅 Generated: {generated}</div>
   </div>
 </div>
 
 <!-- KPI boxes -->
 <div class="card">
-  <h2>סיכום – כלל התקופה</h2>
+  <h2>Summary – Full Period</h2>
   <div class="kpi-grid">
-    <div class="kpi"><h3>סה"כ Fixed</h3><div class="n">{total_fixed:,}</div></div>
+    <div class="kpi"><h3>Total Fixed</h3><div class="n">{total_fixed:,}</div></div>
     <div class="kpi" style="background:#8B0000"><h3>Critical</h3><div class="n">{sum(crit):,}</div></div>
     <div class="kpi" style="background:#CC0000"><h3>High</h3><div class="n">{sum(high):,}</div></div>
     <div class="kpi" style="background:#B8860B"><h3>Medium</h3><div class="n">{sum(med):,}</div></div>
@@ -316,21 +308,21 @@ def render_report(cfg, rows):
 
 <!-- Chart 1: Stacked Bar + Line -->
 <div class="card">
-  <h2>מגמת Fixed לפי Severity – Bar + Trend Line</h2>
+  <h2>Fixed Trend by Severity – Bar + Trend Line</h2>
   <canvas id="chart1"></canvas>
 </div>
 
 <!-- Chart 2: Total + Moving Average -->
 <div class="card">
-  <h2>קו מגמה + ממוצע נע (4 תקופות)</h2>
+  <h2>Trend Line + Moving Average (4 periods)</h2>
   <canvas id="chart2"></canvas>
 </div>
 
 <!-- Data Table -->
 <div class="card">
-  <h2>טבלת נתונים מלאה</h2>
+  <h2>Full Data Table</h2>
   <table>
-    <tr><th>תקופה</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Info</th><th>Total</th></tr>
+    <tr><th>Period</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Info</th><th>Total</th></tr>
     {table_rows}
   </table>
 </div>
@@ -358,7 +350,7 @@ new Chart(document.getElementById('chart1'), {{
     plugins:{{legend:{{position:'top'}}}},
     scales:{{
       x:{{stacked:true, ticks:{{maxRotation:45, font:{{size:10}}}}}},
-      y:{{stacked:true, beginAtZero:true, title:{{display:true,text:'פגיעויות'}}}}
+      y:{{stacked:true, beginAtZero:true, title:{{display:true,text:'Vulnerabilities'}}}}
     }}
   }}
 }});
@@ -369,10 +361,10 @@ new Chart(document.getElementById('chart2'), {{
   data: {{
     labels: {json.dumps(labels, ensure_ascii=False)},
     datasets: [
-      {{label:'סה"כ Fixed', data:{total},
+      {{label:'Total Fixed', data:{total},
         borderColor:'{c_high}', backgroundColor:'rgba(255,68,68,.1)',
         borderWidth:2, pointRadius:4, fill:true, tension:0.3}},
-      {{label:'ממוצע נע (4)', data:{mavg},
+      {{label:'Moving Avg (4)', data:{mavg},
         borderColor:'#1F4E79', borderDash:[6,3],
         borderWidth:2, pointRadius:0, fill:false, tension:0.4}}
     ]
@@ -382,7 +374,7 @@ new Chart(document.getElementById('chart2'), {{
     plugins:{{legend:{{position:'top'}}}},
     scales:{{
       x:{{ticks:{{maxRotation:45, font:{{size:10}}}}}},
-      y:{{beginAtZero:true, title:{{display:true,text:'פגיעויות'}}}}
+      y:{{beginAtZero:true, title:{{display:true,text:'Vulnerabilities'}}}}
     }}
   }}
 }});
@@ -397,13 +389,13 @@ new Chart(document.getElementById('chart2'), {{
 # ══════════════════════════════════════════════
 
 HTML_FORM = """<!DOCTYPE html>
-<html dir="rtl" lang="he">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>Tenable.SC – Report Builder</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f8;color:#333;direction:rtl}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f8;color:#333}
   .wrap{max-width:860px;margin:0 auto;padding:28px 18px}
   h1{color:#1F4E79;text-align:center;font-size:22px;margin-bottom:4px}
   .sub{text-align:center;color:#666;font-size:13px;margin-bottom:26px}
@@ -416,9 +408,9 @@ HTML_FORM = """<!DOCTYPE html>
   .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px}
   .full{grid-column:1/-1}
   label{display:block;font-size:11px;color:#555;font-weight:600;margin-bottom:4px}
-  input,select{width:100%;padding:8px 11px;border:1px solid #ccc;border-radius:6px;font-size:13px;direction:ltr}
+  input,select{width:100%;padding:8px 11px;border:1px solid #ccc;border-radius:6px;font-size:13px}
   input[type=color]{padding:3px 5px;height:34px;cursor:pointer}
-  input[type=file]{direction:rtl;font-size:12px}
+  input[type=file]{font-size:12px}
   select[multiple]{height:86px}
   .btn{display:inline-block;padding:9px 22px;border:none;border-radius:8px;
        font-size:13px;font-weight:600;cursor:pointer;transition:.2s}
@@ -432,7 +424,7 @@ HTML_FORM = """<!DOCTYPE html>
   .colors{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:8px}
   .colors label{text-align:center;font-size:10px}
   .spin{display:inline-block;width:14px;height:14px;border:2px solid #ccc;
-        border-top-color:#1F4E79;border-radius:50%;animation:sp .7s linear infinite;vertical-align:middle;margin-left:6px}
+        border-top-color:#1F4E79;border-radius:50%;animation:sp .7s linear infinite;vertical-align:middle;margin-right:6px}
   @keyframes sp{to{transform:rotate(360deg)}}
   .hidden{display:none!important}
   #report-frame{margin-top:0}
@@ -442,48 +434,48 @@ HTML_FORM = """<!DOCTYPE html>
 <body>
 <div class="wrap">
   <h1>🔒 Tenable.SC – Report Builder</h1>
-  <p class="sub">בניית דוחות מגמה מותאמים · ללא התקנה · עובד Offline</p>
+  <p class="sub">Custom Trend Reports · No installation required · Works Offline</p>
 
-  <!-- ── Step 1: Connection ── -->
+  <!-- Step 1: Connection -->
   <div class="card" id="c1">
-    <h2><span class="badge">1</span> חיבור ל-Tenable.SC</h2>
+    <h2><span class="badge">1</span> Connect to Tenable.SC</h2>
     <div class="grid2">
       <div><label>SC URL</label>
            <input id="host" value="https://localhost:8443" placeholder="https://your-tenable-sc"></div>
-      <div><label>שם משתמש (Security Manager)</label>
+      <div><label>Username (Security Manager)</label>
            <input id="user" placeholder="username"></div>
     </div>
     <div class="grid2">
-      <div><label>סיסמה</label>
+      <div><label>Password</label>
            <input id="pass" type="password" placeholder="password"></div>
       <div style="display:flex;align-items:flex-end">
-           <button class="btn btn-primary" onclick="connect()" style="width:100%">בדוק חיבור ←</button></div>
+           <button class="btn btn-primary" onclick="connect()" style="width:100%">Test Connection →</button></div>
     </div>
     <div id="cmsg"></div>
   </div>
 
-  <!-- ── Step 2: Config (hidden until connected) ── -->
+  <!-- Step 2: Config (hidden until connected) -->
   <div class="card hidden" id="c2">
-    <h2><span class="badge">2</span> הגדרות הדוח</h2>
+    <h2><span class="badge">2</span> Report Settings</h2>
     <div class="grid2">
-      <div class="full"><label>כותרת הדוח</label>
-           <input id="rtitle" value="Fixed Vulnerabilities Trend – 3 Months" dir="auto"></div>
+      <div class="full"><label>Report Title</label>
+           <input id="rtitle" value="Fixed Vulnerabilities Trend – 3 Months"></div>
       <div><label>Asset Tag / Asset List</label>
-           <select id="asset"><option value="">-- כל ה-Assets --</option></select></div>
-      <div><label>Repositories (Ctrl+Click לבחירה מרובה)</label>
+           <select id="asset"><option value="">-- All Assets --</option></select></div>
+      <div><label>Repositories (Ctrl+Click for multiple)</label>
            <select id="repos" multiple></select></div>
-      <div><label>תאריך התחלה</label><input id="dstart" type="date"></div>
-      <div><label>תאריך סיום</label><input id="dend" type="date"></div>
-      <div><label>פירוט</label>
-           <select id="gran"><option value="weekly">שבועי</option>
-                              <option value="monthly">חודשי</option></select></div>
+      <div><label>Start Date</label><input id="dstart" type="date"></div>
+      <div><label>End Date</label><input id="dend" type="date"></div>
+      <div><label>Granularity</label>
+           <select id="gran"><option value="weekly">Weekly</option>
+                              <option value="monthly">Monthly</option></select></div>
     </div>
 
-    <div><label>לוגו (אופציונלי – PNG/JPG)</label>
+    <div><label>Logo (optional – PNG/JPG)</label>
          <input type="file" id="logo" accept="image/*" onchange="previewLogo(this)">
          <img id="lprev" style="max-height:38px;margin-top:6px;display:none"></div>
 
-    <div style="margin-top:14px"><label>צבעים לפי Severity</label>
+    <div style="margin-top:14px"><label>Colors by Severity</label>
       <div class="colors">
         <div><label>Critical</label><input type="color" id="cc" value="#C00000"></div>
         <div><label>High</label>    <input type="color" id="ch" value="#FF4444"></div>
@@ -494,16 +486,16 @@ HTML_FORM = """<!DOCTYPE html>
     </div>
 
     <div class="actions" style="margin-top:18px">
-      <button class="btn btn-success" onclick="generate()">▶ צור דוח</button>
+      <button class="btn btn-success" onclick="generate()">▶ Generate Report</button>
     </div>
     <div id="gmsg"></div>
   </div>
 
-  <!-- ── Step 3: Report ── -->
+  <!-- Step 3: Report -->
   <div id="c3" class="hidden">
     <div class="actions">
-      <button class="btn btn-export" onclick="exportHTML()">💾 ייצא HTML</button>
-      <button class="btn btn-export" onclick="window.print()">🖨 הדפס</button>
+      <button class="btn btn-export" onclick="exportHTML()">💾 Export HTML</button>
+      <button class="btn btn-export" onclick="window.print()">🖨 Print</button>
     </div>
     <iframe id="report-frame" style="width:100%;border:none;min-height:1100px;display:block"></iframe>
   </div>
@@ -531,7 +523,7 @@ async function connect(){
   const host=document.getElementById('host').value.trim(),
         user=document.getElementById('user').value.trim(),
         pass=document.getElementById('pass').value.trim();
-  msg('cmsg','<span class="spin"></span> מתחבר...','info');
+  msg('cmsg','<span class="spin"></span> Connecting...','info');
   try{
     const r=await fetch('/api/connect',{method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -543,14 +535,13 @@ async function connect(){
     rsel.innerHTML='';
     d.repositories.forEach(x=>{
       const o=new Option(`${x.name} (${x.type})`,x.id);
-      if(['New_Default_Repo','PCI_Repo'].includes(x.name)) o.selected=true;
       rsel.appendChild(o);
     });
     // Populate assets
     const asel=document.getElementById('asset');
-    asel.innerHTML='<option value="">-- כל ה-Assets --</option>';
+    asel.innerHTML='<option value="">-- All Assets --</option>';
     d.assets.forEach(x=>asel.appendChild(new Option(`${x.name} (${x.type})`,x.id)));
-    msg('cmsg',`✅ מחובר | ${d.repositories.length} Repositories · ${d.assets.length} Asset Lists`,'ok');
+    msg('cmsg',`✅ Connected | ${d.repositories.length} Repositories · ${d.assets.length} Asset Lists`,'ok');
     document.getElementById('c2').classList.remove('hidden');
   }catch(e){msg('cmsg',`❌ ${e.message}`,'err')}
 }
@@ -581,15 +572,14 @@ async function generate(){
     }
   };
   if(cfg.logo==='') cfg.logo=null;
-  msg('gmsg','<span class="spin"></span> שולף נתונים מ-Tenable.SC...','info');
+  msg('gmsg','<span class="spin"></span> Fetching data from Tenable.SC...','info');
   try{
     const r=await fetch('/api/generate',{method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(cfg)});
     const d=await r.json();
     if(d.error)throw new Error(d.error);
-    msg('gmsg',`✅ הדוח נוצר – ${d.periods} תקופות · ${d.total.toLocaleString()} Fixed vulns`,'ok');
-    // Render inline
+    msg('gmsg',`✅ Report generated – ${d.periods} periods · ${d.total.toLocaleString()} Fixed vulns`,'ok');
     const frame=document.getElementById('report-frame');
     frame.srcdoc=d.html;
     document.getElementById('c3').classList.remove('hidden');
@@ -619,7 +609,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # suppress console noise
 
-    # ── Helpers ───────────────────────────────
     def _json(self, data, status=200):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -640,7 +629,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(n).decode("utf-8"))
 
-    # ── GET ───────────────────────────────────
     def do_GET(self):
         if self.path == "/":
             self._html(HTML_FORM)
@@ -656,7 +644,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    # ── POST ──────────────────────────────────
     def do_POST(self):
         try:
             body = self._read_body()
@@ -722,10 +709,9 @@ def main():
 ║   Tenable.SC Report Builder                  ║
 ║   http://localhost:{PORT}                       ║
 ╠══════════════════════════════════════════════╣
-║  Ctrl+C להפסקה                               ║
+║  Press Ctrl+C to stop                        ║
 ╚══════════════════════════════════════════════╝
 """)
-    # פתח בכרום ישירות (עוקף Edge)
     def _open_chrome(u):
         import subprocess
         chrome_paths = [
