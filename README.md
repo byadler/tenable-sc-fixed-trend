@@ -2,7 +2,7 @@
 
 > **Prove your remediation program is working** — with a single command.
 
-Security teams spend enormous effort fixing vulnerabilities, yet struggle to show the trend over time. This tool connects directly to your Tenable Security Center and generates a fully visual, standalone HTML report in minutes — showing exactly how many vulnerabilities your team has fixed, week by week, with zero setup and no internet dependency after the first run.
+Security teams spend enormous effort fixing vulnerabilities, yet struggle to show the trend over time. This tool connects directly to your Tenable Security Center and generates a fully visual, standalone HTML report in minutes - showing exactly how many vulnerabilities your team has fixed, week by week, with zero setup and no internet dependency after the first run.
 
 [![Python 3.6+](https://img.shields.io/badge/python-3.6%2B-blue)](https://www.python.org/)
 [![No Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](.)
