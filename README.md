@@ -1,7 +1,8 @@
 # Tenable SC – Fixed Vulnerability Trend Builder
 
-> Generate weekly/monthly Fixed Vulnerability Trend reports directly from Tenable Security Center.  
-> No pip installs. No dependencies. Python stdlib only. Works offline after first run.
+> **Prove your remediation program is working** — with a single command.
+
+Security teams spend enormous effort fixing vulnerabilities, yet struggle to show the trend over time. This tool connects directly to your Tenable Security Center and generates a fully visual, standalone HTML report in minutes — showing exactly how many vulnerabilities your team has fixed, week by week, with zero setup and no internet dependency after the first run.
 
 [![Python 3.6+](https://img.shields.io/badge/python-3.6%2B-blue)](https://www.python.org/)
 [![No Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](.)
@@ -11,12 +12,12 @@
 
 ## What It Does
 
-Connects to your Tenable Security Center instance, pulls **Fixed (Patched) vulnerability** data week by week, and generates a standalone HTML report with:
+Answer the question every CISO asks — *"Is our remediation effort actually improving?"* — with a report that pulls live data from Tenable SC and visualizes it as:
 
-- Stacked bar chart by severity (Critical / High / Medium / Low)
-- Trend line with 4-week moving average
-- Period comparison (Last Week / Last Month / Last Quarter / Last Year)
-- Full data table
+- **Stacked bar chart** by severity (Critical / High / Medium / Low) across up to 52 weeks
+- **Trend line** with 4-week moving average to cut through week-to-week noise
+- **Period comparison** — Last Week / Last Month / Last Quarter / Last Year side by side
+- **Full data table** — exportable, printable, shareable
 
 **Two modes:**
 
