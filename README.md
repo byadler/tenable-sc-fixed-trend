@@ -22,8 +22,8 @@ Connects to your Tenable Security Center instance, pulls **Fixed (Patched) vulne
 
 | Tool | Mode | Best for |
 |------|------|----------|
-| `sc_trend_en.py` | CLI (interactive prompts) | Quick one-off reports |
-| `report_builder_en.py` | Web UI at localhost:8080 | Custom date range, logo, colors |
+| `sc_trend.py` | CLI (interactive prompts) | Quick one-off reports |
+| `report_builder.py` | Web UI at localhost:8080 | Custom date range, logo, colors |
 
 ---
 
@@ -40,22 +40,22 @@ Connects to your Tenable Security Center instance, pulls **Fixed (Patched) vulne
 
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/tenable-sc-fixed-trend.git
+git clone https://github.com/byadler/tenable-sc-fixed-trend.git
 cd tenable-sc-fixed-trend
 
 # Option A: CLI script
-py sc_trend_en.py          # Windows
-python3 sc_trend_en.py     # Mac / Linux
+py sc_trend.py          # Windows
+python3 sc_trend.py     # Mac / Linux
 
 # Option B: Web UI
-py report_builder_en.py    # Windows
-python3 report_builder_en.py  # Mac / Linux
+py report_builder.py    # Windows
+python3 report_builder.py  # Mac / Linux
 # → Opens Chrome at http://localhost:8080
 ```
 
 ---
 
-## CLI Usage (sc_trend_en.py)
+## CLI Usage (sc_trend.py)
 
 The script asks 5 questions interactively:
 
@@ -91,7 +91,7 @@ Fetching data (52 weeks)...
 
 ---
 
-## Web UI Usage (report_builder_en.py)
+## Web UI Usage (report_builder.py)
 
 1. Run the script → Chrome opens at `http://localhost:8080`
 2. **Step 1:** Enter SC URL, username, password → click **Test Connection**
@@ -134,11 +134,9 @@ To verify numbers match:
 
 | File | Description |
 |------|-------------|
-| `sc_trend_en.py` | CLI script – English |
-| `sc_trend.py` | CLI script – Hebrew |
-| `report_builder_en.py` | Web UI server – English |
-| `report_builder.py` | Web UI server – Hebrew |
-| `sc_debug.py` | Diagnostic: tests available filters |
+| `sc_trend.py` | CLI script – interactive prompts |
+| `report_builder.py` | Web UI server – browser interface |
+| `sc_debug.py` | Diagnostic: tests available SC filters |
 | `sc_debug2.py` | Diagnostic: validates lastMitigated format |
 
 ---
@@ -147,7 +145,7 @@ To verify numbers match:
 
 **Python not found (Windows)**
 ```cmd
-py sc_trend_en.py
+py sc_trend.py
 # or find python:
 where python
 where py
@@ -157,7 +155,7 @@ where py
 Open your SC URL in Chrome → click "Continue anyway" → retry the script.
 
 **Charts not showing**  
-Open the HTML file in Chrome (not Edge). Or use `report_builder_en.py` which inlines Chart.js.
+Open the HTML file in Chrome (not Edge). Or use `report_builder.py` which inlines Chart.js.
 
 **WinError 10060 – Timeout**  
 The script retries automatically 3 times. Check SC is reachable on your network.
