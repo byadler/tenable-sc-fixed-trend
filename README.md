@@ -180,5 +180,5 @@ MIT License – free to use, modify, and share.
 
 ---
 
-*Built by Benny Adler – Tenable Technical Support*  
+*Built by Benny Adler*  
 *Contributed to the [Cyber Agents Exchange](https://exchange.tenable.com)*
