@@ -1,15 +1,55 @@
 #!/usr/bin/env python3
 """
-Tenable.SC – Report Builder
-============================
+Tenable.SC – Fixed Vulnerability Trend Report Builder
+======================================================
 Single file · No external dependencies · Works Offline
 
-Run:  py report_builder_en.py
-Open: http://localhost:8080
+HOW TO RUN
+----------
+  Windows:   py report_builder.py
+  Mac/Linux: python3 report_builder.py
 
-For offline Chart.js:
-  Download: https://cdn.jsdelivr.net/npm/chart.js/dist/chart.min.js
-  Place chart.min.js in the same folder as this script.
+Then open your browser at:  http://localhost:8080
+(Chrome opens automatically — if not, open it manually)
+
+WHAT IT DOES
+------------
+  1. Connect to your Tenable SC with URL + credentials
+  2. Choose repositories, asset groups, date range, and granularity
+  3. Click "Generate Report" to get a standalone HTML report showing:
+       - Stacked bar chart by severity (Critical / High / Medium / Low / Info)
+       - Trend line with 4-period moving average
+       - KPI summary boxes (Total Fixed, Critical, High, Medium)
+       - Full data table with per-column visibility toggles
+       - Unique Assets column (distinct IPs remediated per period)
+
+FEATURES
+--------
+  - Severity filter: choose which severity levels to include
+  - Multiple asset groups: Ctrl+Click to select more than one
+  - Asset search bar: filter asset groups by name in real time
+  - Logo upload: embed your org logo in the report header
+  - Export HTML: self-contained report file, works fully offline
+  - Print / PDF: via browser print dialog
+
+REQUIREMENTS
+------------
+  - Python 3.6+
+  - Network access to Tenable SC
+  - No pip installs required (Python stdlib only)
+  - Chart.js is downloaded automatically on first run (~200KB)
+    For offline use: place chart.min.js in the same folder as this script
+    Download from: https://cdn.jsdelivr.net/npm/chart.js/dist/chart.umd.min.js
+
+TROUBLESHOOTING
+---------------
+  - F5/SSO environments: use the internal IP of SC (e.g. https://10.x.x.x)
+    instead of the hostname to bypass the SSO gateway
+  - SSL errors: open the SC URL in Chrome, accept the certificate, then retry
+  - Charts not showing: use Chrome (not Edge)
+  - Port 8080 in use: change PORT = 8080 below to any free port
+
+Press Ctrl+C in the terminal to stop the server when done.
 """
 
 import http.cookiejar
