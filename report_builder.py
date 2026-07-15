@@ -70,17 +70,28 @@ class SCClient:
             urllib.request.HTTPCookieProcessor(self._jar),
         )
 
-    def _call(self, path, method="GET", data=None):
-        url  = f"{self.host}/rest/{path}"
+    def _call(self, path, method="GET", data=None, _url=None):
+        url  = _url or f"{self.host}/rest/{path}"
         body = json.dumps(data).encode("utf-8") if data else None
         req  = urllib.request.Request(url, data=body, method=method)
         req.add_header("Content-Type", "application/json")
+        req.add_header("Accept", "application/json")
+        req.add_header("User-Agent", "Mozilla/5.0")
         if self.token:
             req.add_header("X-SecurityCenter", self.token)
         try:
             with self._opener.open(req, timeout=30) as r:
                 return json.loads(r.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
+            if e.code in (301, 302, 307, 308):
+                location = e.headers.get("Location", "")
+                if location:
+                    # If relative URL, make it absolute
+                    if location.startswith("/"):
+                        from urllib.parse import urlparse
+                        p = urlparse(self.host)
+                        location = f"{p.scheme}://{p.netloc}{location}"
+                    return self._call(path, method, data, _url=location)
             msg = e.read().decode("utf-8")[:400]
             raise RuntimeError(f"HTTP {e.code}: {msg}")
 
@@ -113,7 +124,14 @@ class SCClient:
         return r if isinstance(r, list) else []
 
     # ── Analysis ──────────────────────────────
-    def query_fixed(self, start_ts, end_ts, repo_ids=None, asset_id=None):
+    def _asset_filter(self, asset_ids):
+        if not asset_ids:
+            return None
+        if len(asset_ids) == 1:
+            return {"filterName": "asset", "operator": "=", "value": {"id": str(asset_ids[0])}}
+        return {"filterName": "asset", "operator": "=", "value": [{"id": str(a)} for a in asset_ids]}
+
+    def query_fixed(self, start_ts, end_ts, repo_ids=None, asset_ids=None):
         """
         POST /rest/analysis  sourceType="patched"
         lastMitigated uses DAYS (not timestamps):
@@ -123,36 +141,39 @@ class SCClient:
         now_ts    = datetime.now().timestamp()
         day_end   = max(0, int((now_ts - end_ts)   / 86400))
         day_start = max(0, int((now_ts - start_ts) / 86400))
-        filters = [{
-            "filterName": "lastMitigated",
-            "operator":   "=",
-            "value":      f"{day_end}:{day_start}"
-        }]
+        filters = [{"filterName": "lastMitigated", "operator": "=", "value": f"{day_end}:{day_start}"}]
         if repo_ids:
-            filters.append({
-                "filterName": "repository",
-                "operator":   "=",
-                "value":      [{"id": str(r)} for r in repo_ids]
-            })
-        if asset_id:
-            filters.append({
-                "filterName": "asset",
-                "operator":   "=",
-                "value":      {"id": str(asset_id)}
-            })
-
+            filters.append({"filterName": "repository", "operator": "=",
+                             "value": [{"id": str(r)} for r in repo_ids]})
+        af = self._asset_filter(asset_ids)
+        if af:
+            filters.append(af)
         payload = {
-            "type":       "vuln",
-            "sourceType": "patched",
-            "query": {
-                "tool":        "sumseverity",
-                "type":        "vuln",
-                "startOffset": 0,
-                "endOffset":   5000,
-                "filters":     filters,
-            }
+            "type": "vuln", "sourceType": "patched",
+            "query": {"tool": "sumseverity", "type": "vuln",
+                      "startOffset": 0, "endOffset": 5000, "filters": filters}
         }
         return self._call("analysis", "POST", payload).get("response", {})
+
+    def query_unique_assets(self, start_ts, end_ts, repo_ids=None, asset_ids=None):
+        """Returns count of unique IPs that had fixes in the period."""
+        now_ts    = datetime.now().timestamp()
+        day_end   = max(0, int((now_ts - end_ts)   / 86400))
+        day_start = max(0, int((now_ts - start_ts) / 86400))
+        filters = [{"filterName": "lastMitigated", "operator": "=", "value": f"{day_end}:{day_start}"}]
+        if repo_ids:
+            filters.append({"filterName": "repository", "operator": "=",
+                             "value": [{"id": str(r)} for r in repo_ids]})
+        af = self._asset_filter(asset_ids)
+        if af:
+            filters.append(af)
+        payload = {
+            "type": "vuln", "sourceType": "patched",
+            "query": {"tool": "sumip", "type": "vuln",
+                      "startOffset": 0, "endOffset": 1, "filters": filters}
+        }
+        resp = self._call("analysis", "POST", payload).get("response", {})
+        return int(resp.get("totalRecords", 0))
 
     @staticmethod
     def parse_counts(response_data):
@@ -192,12 +213,14 @@ def build_periods(start_dt, end_dt, granularity):
     return periods
 
 
-def fetch_data(client, periods, repo_ids, asset_id):
+def fetch_data(client, periods, repo_ids, asset_ids):
     rows = []
     for label, p_start, p_end in periods:
         raw    = client.query_fixed(p_start.timestamp(), p_end.timestamp(),
-                                    repo_ids, asset_id)
+                                    repo_ids, asset_ids)
         counts = client.parse_counts(raw)
+        counts["UniqueAssets"] = client.query_unique_assets(
+            p_start.timestamp(), p_end.timestamp(), repo_ids, asset_ids)
         counts["Period"] = label
         rows.append(counts)
     return rows
@@ -206,13 +229,17 @@ def fetch_data(client, periods, repo_ids, asset_id):
 def render_report(cfg, rows):
     """Build the standalone report HTML."""
 
+    sevs    = cfg.get("severities", ["Critical", "High", "Medium", "Low", "Info"])
     labels  = [r["Period"]   for r in rows]
-    crit    = [r["Critical"] for r in rows]
-    high    = [r["High"]     for r in rows]
-    med     = [r["Medium"]   for r in rows]
-    low     = [r["Low"]      for r in rows]
-    info_v  = [r["Info"]     for r in rows]
-    total   = [r["Total"]    for r in rows]
+    crit    = [r["Critical"] for r in rows] if "Critical" in sevs else [0]*len(rows)
+    high    = [r["High"]     for r in rows] if "High"     in sevs else [0]*len(rows)
+    med     = [r["Medium"]   for r in rows] if "Medium"   in sevs else [0]*len(rows)
+    low     = [r["Low"]      for r in rows] if "Low"      in sevs else [0]*len(rows)
+    info_v  = [r["Info"]     for r in rows] if "Info"     in sevs else [0]*len(rows)
+    total   = [sum(v for k,v in zip(["Critical","High","Medium","Low","Info"],
+               [r["Critical"],r["High"],r["Medium"],r["Low"],r["Info"]])
+               if k in sevs) for r in rows]
+    unique_assets = [r.get("UniqueAssets", 0) for r in rows]
     mavg    = moving_avg(total)
 
     colors  = cfg.get("colors", {})
@@ -224,7 +251,7 @@ def render_report(cfg, rows):
 
     title       = cfg.get("title",    "Fixed Vulnerabilities Trend")
     logo_src    = cfg.get("logo")
-    asset_name  = cfg.get("assetName", "—")
+    asset_name  = ", ".join(cfg.get("assetNames", [])) or "All Assets"
     repo_names  = ", ".join(cfg.get("repoNames", [])) or "—"
     generated   = datetime.now().strftime("%m/%d/%Y %H:%M")
     total_fixed = sum(total)
@@ -250,7 +277,8 @@ def render_report(cfg, rows):
             f"<td style='color:{c_med}'>{r['Medium']:,}</td>"
             f"<td style='color:{c_low}'>{r['Low']:,}</td>"
             f"<td>{r['Info']:,}</td>"
-            f"<td><strong>{r['Total']:,}</strong></td></tr>\n"
+            f"<td><strong>{r['Total']:,}</strong></td>"
+            f"<td style='color:#1F4E79;font-weight:bold'>{r.get('UniqueAssets',0):,}</td></tr>\n"
         )
 
     html = f"""<!DOCTYPE html>
@@ -321,8 +349,18 @@ def render_report(cfg, rows):
 <!-- Data Table -->
 <div class="card">
   <h2>Full Data Table</h2>
-  <table>
-    <tr><th>Period</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Info</th><th>Total</th></tr>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+    <span style="font-size:12px;color:#666;font-weight:600">Show columns:</span>
+    <label class="tcol-lbl"><input type="checkbox" checked onchange="toggleCol(1,this)"> <span style="color:{c_crit};font-weight:600">Critical</span></label>
+    <label class="tcol-lbl"><input type="checkbox" checked onchange="toggleCol(2,this)"> <span style="color:{c_high};font-weight:600">High</span></label>
+    <label class="tcol-lbl"><input type="checkbox" checked onchange="toggleCol(3,this)"> <span style="color:{c_med};font-weight:600">Medium</span></label>
+    <label class="tcol-lbl"><input type="checkbox" checked onchange="toggleCol(4,this)"> <span style="color:{c_low};font-weight:600">Low</span></label>
+    <label class="tcol-lbl"><input type="checkbox" checked onchange="toggleCol(5,this)"> <span style="color:#888;font-weight:600">Info</span></label>
+    <label class="tcol-lbl"><input type="checkbox" checked onchange="toggleCol(6,this)"> <span style="font-weight:600">Total</span></label>
+    <label class="tcol-lbl"><input type="checkbox" checked onchange="toggleCol(7,this)"> <span style="color:#1F4E79;font-weight:600">Unique Assets</span></label>
+  </div>
+  <table id="data-table">
+    <tr><th>Period</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th><th>Info</th><th>Total</th><th>Unique Assets</th></tr>
     {table_rows}
   </table>
 </div>
@@ -378,6 +416,18 @@ new Chart(document.getElementById('chart2'), {{
     }}
   }}
 }});
+
+// Table column toggle
+document.head.insertAdjacentHTML('beforeend',`<style>
+  .tcol-lbl{{font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px}}
+  .tcol-lbl input{{cursor:pointer}}
+</style>`);
+function toggleCol(colIdx, cb){{
+  const tbl=document.getElementById('data-table');
+  Array.from(tbl.rows).forEach(row=>{{
+    if(row.cells[colIdx]) row.cells[colIdx].style.display=cb.checked?'':'none';
+  }});
+}}
 </script>
 </body>
 </html>"""
@@ -460,8 +510,10 @@ HTML_FORM = """<!DOCTYPE html>
     <div class="grid2">
       <div class="full"><label>Report Title</label>
            <input id="rtitle" value="Fixed Vulnerabilities Trend – 3 Months"></div>
-      <div><label>Asset Tag / Asset List</label>
-           <select id="asset"><option value="">-- All Assets --</option></select></div>
+      <div><label>Asset Groups (Ctrl+Click for multiple)</label>
+           <input id="asset-search" placeholder="Search asset group..." style="margin-bottom:4px;font-size:12px"
+             oninput="filterAssets(this.value)">
+           <select id="assets" multiple style="height:100px"></select></div>
       <div><label>Repositories (Ctrl+Click for multiple)</label>
            <select id="repos" multiple></select></div>
       <div><label>Start Date</label><input id="dstart" type="date"></div>
@@ -474,6 +526,16 @@ HTML_FORM = """<!DOCTYPE html>
     <div><label>Logo (optional – PNG/JPG)</label>
          <input type="file" id="logo" accept="image/*" onchange="previewLogo(this)">
          <img id="lprev" style="max-height:38px;margin-top:6px;display:none"></div>
+
+    <div style="margin-top:14px"><label>Severity Levels to Include</label>
+      <div style="display:flex;gap:16px;margin-top:6px;flex-wrap:wrap">
+        <label style="font-size:13px;font-weight:normal"><input type="checkbox" id="sev_crit" checked> <span style="color:#C00000;font-weight:600">Critical</span></label>
+        <label style="font-size:13px;font-weight:normal"><input type="checkbox" id="sev_high" checked> <span style="color:#FF4444;font-weight:600">High</span></label>
+        <label style="font-size:13px;font-weight:normal"><input type="checkbox" id="sev_med"  checked> <span style="color:#FFC000;font-weight:600">Medium</span></label>
+        <label style="font-size:13px;font-weight:normal"><input type="checkbox" id="sev_low"  checked> <span style="color:#00B0F0;font-weight:600">Low</span></label>
+        <label style="font-size:13px;font-weight:normal"><input type="checkbox" id="sev_info"> <span style="color:#888;font-weight:600">Info</span></label>
+      </div>
+    </div>
 
     <div style="margin-top:14px"><label>Colors by Severity</label>
       <div class="colors">
@@ -512,6 +574,19 @@ HTML_FORM = """<!DOCTYPE html>
 
 function msg(id, text, cls){document.getElementById(id).innerHTML=`<div class="msg ${cls}">${text}</div>`}
 
+let _allAssets=[];
+function filterAssets(q){
+  const sel=document.getElementById('assets');
+  const prev=Array.from(sel.selectedOptions).map(o=>o.value);
+  sel.innerHTML='';
+  _allAssets.filter(a=>a.name.toLowerCase().includes(q.toLowerCase()))
+    .forEach(a=>{
+      const o=new Option(`${a.name} (${a.type})`,a.id);
+      if(prev.includes(a.id)) o.selected=true;
+      sel.appendChild(o);
+    });
+}
+
 function previewLogo(inp){
   const f=inp.files[0]; if(!f)return;
   const r=new FileReader();
@@ -538,31 +613,38 @@ async function connect(){
       rsel.appendChild(o);
     });
     // Populate assets
-    const asel=document.getElementById('asset');
-    asel.innerHTML='<option value="">-- All Assets --</option>';
-    d.assets.forEach(x=>asel.appendChild(new Option(`${x.name} (${x.type})`,x.id)));
+    _allAssets=d.assets;
+    filterAssets(document.getElementById('asset-search').value);
     msg('cmsg',`✅ Connected | ${d.repositories.length} Repositories · ${d.assets.length} Asset Lists`,'ok');
     document.getElementById('c2').classList.remove('hidden');
-  }catch(e){msg('cmsg',`❌ ${e.message}`,'err')}
+  }catch(e){msg('cmsg',`❌ ${e.message||'Connection failed – check SC URL and credentials'}`,'err')}
 }
 
 async function generate(){
   const host=document.getElementById('host').value.trim(),
         user=document.getElementById('user').value.trim(),
         pass=document.getElementById('pass').value.trim();
-  const asel=document.getElementById('asset');
+  const asel=document.getElementById('assets');
   const rsel=document.getElementById('repos');
+  const sevs=[];
+  if(document.getElementById('sev_crit').checked) sevs.push('Critical');
+  if(document.getElementById('sev_high').checked) sevs.push('High');
+  if(document.getElementById('sev_med').checked)  sevs.push('Medium');
+  if(document.getElementById('sev_low').checked)  sevs.push('Low');
+  if(document.getElementById('sev_info').checked) sevs.push('Info');
+  const selAssets=Array.from(asel.selectedOptions);
   const cfg={
     host, user, pass,
-    title:   document.getElementById('rtitle').value,
-    logo:    document.getElementById('lprev').src||null,
-    dstart:  document.getElementById('dstart').value,
-    dend:    document.getElementById('dend').value,
-    gran:    document.getElementById('gran').value,
-    assetId: asel.value||null,
-    assetName: asel.selectedOptions[0]?.text||'',
-    repoIds:   Array.from(rsel.selectedOptions).map(o=>o.value),
-    repoNames: Array.from(rsel.selectedOptions).map(o=>o.text.split(' (')[0]),
+    title:      document.getElementById('rtitle').value,
+    logo:       document.getElementById('lprev').src||null,
+    dstart:     document.getElementById('dstart').value,
+    dend:       document.getElementById('dend').value,
+    gran:       document.getElementById('gran').value,
+    assetIds:   selAssets.map(o=>o.value),
+    assetNames: selAssets.map(o=>o.text.split(' (')[0]),
+    repoIds:    Array.from(rsel.selectedOptions).map(o=>o.value),
+    repoNames:  Array.from(rsel.selectedOptions).map(o=>o.text.split(' (')[0]),
+    severities: sevs,
     colors:{
       Critical: document.getElementById('cc').value,
       High:     document.getElementById('ch').value,
@@ -669,8 +751,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "assets":       [{"id": a["id"], "name": a["name"],
                                    "type": a.get("type", "")} for a in assets],
             })
+        except urllib.error.URLError as e:
+            reason = str(e.reason) if hasattr(e, 'reason') else str(e)
+            self._json({"error": f"Network error: {reason} – check SC URL and network access"})
+        except RuntimeError as e:
+            msg = str(e) or "Unknown login error"
+            self._json({"error": msg})
         except Exception as e:
-            self._json({"error": str(e)})
+            self._json({"error": str(e) or f"Unexpected error: {type(e).__name__}"})
 
     def _generate(self, cfg):
         try:
@@ -679,12 +767,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
             start_dt  = datetime.strptime(cfg["dstart"][:10], "%Y-%m-%d")
             end_dt    = datetime.strptime(cfg["dend"][:10],   "%Y-%m-%d")
-            repo_ids  = cfg.get("repoIds")  or []
-            asset_id  = cfg.get("assetId")  or None
+            repo_ids  = cfg.get("repoIds")   or []
+            asset_ids = cfg.get("assetIds")  or []
             gran      = cfg.get("gran", "weekly")
 
             periods   = build_periods(start_dt, end_dt, gran)
-            rows      = fetch_data(c, periods, repo_ids, asset_id)
+            rows      = fetch_data(c, periods, repo_ids, asset_ids)
             c.logout()
 
             html = render_report(cfg, rows)

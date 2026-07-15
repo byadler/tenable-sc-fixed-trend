@@ -32,14 +32,15 @@ opener = urllib.request.build_opener(
     urllib.request.HTTPCookieProcessor(jar)
 )
 
-def sc_call(path, method="GET", data=None, token=None, retries=3):
-    url = f"{SC_HOST}/rest/{path}"
+def sc_call(path, method="GET", data=None, token=None, retries=3, _url=None):
+    url = _url or f"{SC_HOST}/rest/{path}"
     body = json.dumps(data).encode() if data else None
     for attempt in range(1, retries + 1):
         try:
             req = urllib.request.Request(url, data=body, method=method)
             req.add_header("Content-Type", "application/json")
             req.add_header("Accept",       "application/json")
+            req.add_header("User-Agent",   "Mozilla/5.0")
             if token:
                 req.add_header("X-SecurityCenter", token)
             resp = json.loads(opener.open(req, timeout=60).read().decode("utf-8"))
@@ -47,6 +48,15 @@ def sc_call(path, method="GET", data=None, token=None, retries=3):
                 raise RuntimeError(f"SC Error {resp['error_code']}: {resp.get('error_msg','')}")
             return resp
         except urllib.error.HTTPError as e:
+            if e.code in (301, 302, 307, 308):
+                location = e.headers.get("Location", "")
+                if location:
+                    if location.startswith("/"):
+                        from urllib.parse import urlparse
+                        p = urlparse(SC_HOST)
+                        location = f"{p.scheme}://{p.netloc}{location}"
+                    print(f"\n[redirect {e.code}] → {location}")
+                    return sc_call(path, method, data, token, retries, _url=location)
             msg = e.read().decode("utf-8", "ignore")[:300]
             raise RuntimeError(f"HTTP {e.code}: {msg}")
         except Exception as e:
